@@ -15,21 +15,24 @@ class TaskListWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      if (controller.taskList.isEmpty) {
+      final tasks = controller.sortedTasks;
+      
+      if (tasks.isEmpty) {
         return const EmptyStateWidget();
       }
 
       return ListView.separated(
         padding: const EdgeInsets.all(16),
-        itemCount: controller.taskList.length,
+        itemCount: tasks.length,
         separatorBuilder: (context, index) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
+          final task = tasks[index];
+          final originalIndex = controller.taskList.indexOf(task);
+          
           return TaskItemWidget(
-            task: controller.taskList[index],
-            onDelete: () => controller.deleteTask(index),
-            onToggleComplete: () {
-              controller.toggleTaskCompletion(index);
-            },
+            task: task,
+            onDelete: () => controller.deleteTask(originalIndex),
+            onToggleComplete: () => controller.toggleTaskCompletion(originalIndex),
           );
         },
       );

@@ -54,9 +54,6 @@ class AddTaskViewModel extends GetxController {
         }
       }
 
-      // Simulate a delay for better UX
-      await Future.delayed(const Duration(milliseconds: 500));
-
       final task = TaskModel(
         id: const Uuid().v4(),
         title: title.value.trim(),
@@ -67,7 +64,9 @@ class AddTaskViewModel extends GetxController {
         isCompleted: false,
       );
 
-      await Get.find<HomeViewModel>().addTask(task);
+      // Get or create HomeViewModel instance
+      final homeController = Get.find<HomeViewModel>();
+      await homeController.addTask(task);
 
       Get.snackbar(
         'Success',
@@ -77,6 +76,7 @@ class AddTaskViewModel extends GetxController {
         snackPosition: SnackPosition.TOP,
       );
 
+      clearForm();
       Get.back();
     } catch (e) {
       Get.snackbar(

@@ -7,11 +7,13 @@ import 'package:tasksy/view/screens/hom/widgets/floating_action_buttons.dart';
 import 'package:tasksy/view/screens/hom/widgets/home_app_bar.dart';
 
 class HomeScreen extends StatelessWidget {
-  final controller = Get.find<HomeViewModel>();
   HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Use Get.put to ensure the controller is properly initialized
+    final controller = Get.put(HomeViewModel());
+    
     return Scaffold(
       appBar: const HomeAppBar(),
       body: TaskListWidget(controller: controller),
