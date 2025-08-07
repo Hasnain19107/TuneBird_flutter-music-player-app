@@ -8,9 +8,48 @@ allprojects {
 rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
-    project.evaluationDependsOn(":app")
+    
+    // Fix for plugins that don't have namespace specified
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            android {
+                if (namespace == null) {
+                    // Set namespace based on the project name
+                    if (project.name == "on_audio_query_android") {
+                        namespace = "com.lucifer.on_audio_query_android"
+                    } else if (project.name == "path_provider_android") {
+                        namespace = "io.flutter.plugins.pathprovider"
+                    } else if (project.name == "permission_handler_android") {
+                        namespace = "com.baseflow.permissionhandler"
+                    } else if (project.name == "audio_service") {
+                        namespace = "com.ryanheise.audioservice"
+                    } else if (project.name == "audio_session") {
+                        namespace = "com.ryanheise.audio_session"
+                    } else if (project.name == "just_audio") {
+                        namespace = "com.ryanheise.just_audio"
+                    } else {
+                        // Fallback namespace
+                        namespace = "com.example.${project.name}"
+                    }
+                }
+                compileSdkVersion 35
+                
+                compileOptions {
+                    sourceCompatibility = JavaVersion.VERSION_11
+                    targetCompatibility = JavaVersion.VERSION_11
+                }
+            }
+        }
+        
+        // Configure Kotlin compilation options
+        if (project.hasProperty("kotlin")) {
+            project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
+                kotlinOptions {
+                    jvmTarget = "11"
+                }
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {

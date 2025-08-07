@@ -39,6 +39,11 @@ dependencies:
   hive_flutter: ^1.1.0
   path_provider: 2.0.11
   uuid: ^4.5.1
+  just_audio: 
+  audio_service: 
+  permission_handler: 
+  on_audio_query: 
+  audio_video_progress_bar: 
 
 
 dev_dependencies:
