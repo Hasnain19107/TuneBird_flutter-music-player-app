@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 import '../services/music_service.dart';
 import '../models/song_model.dart';
+import '../utils/format_utils.dart';
 
 class MusicViewModel extends GetxController {
   late final MusicService _musicService;
@@ -18,6 +19,8 @@ class MusicViewModel extends GetxController {
   }
 
   RxList<Song> get songs => _musicService.songs;
+  RxList<Song> get librarySongs => _musicService.librarySongs;
+  bool get isUsingTemporaryQueue => _musicService.isUsingTemporaryQueue;
   RxInt get currentIndex => _musicService.currentIndex;
   RxBool get isPlaying => _musicService.isPlaying;
   RxBool get isShuffleOn => _musicService.isShuffleOn;
@@ -28,10 +31,7 @@ class MusicViewModel extends GetxController {
   Song? get currentSong =>
       currentIndex.value < songs.length ? songs[currentIndex.value] : null;
 
-  String formatDuration(double seconds) {
-    final duration = Duration(seconds: seconds.toInt());
-    return '${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}';
-  }
+  String formatDuration(double seconds) => FormatUtils.formatMmSs((seconds * 1000).toInt());
 
   void playSong(int index) => _musicService.playSong(index);
   void togglePlay() => _musicService.togglePlay();

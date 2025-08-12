@@ -14,7 +14,7 @@ class SplashScreen extends StatelessWidget {
             Icon(Icons.music_note, size: 80, color: Theme.of(context).colorScheme.primary),
             const SizedBox(height: 24),
             Text(
-              'Tasksy Music Player',
+              'TuneBird Music Player',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),

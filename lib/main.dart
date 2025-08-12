@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:metadata_god/metadata_god.dart';
 
 import 'views/home/home_view.dart';
 import 'services/music_service.dart';
 import 'services/playlist_manager.dart';
 import 'services/folder_data_service.dart';
+import 'services/song_data_service.dart';
 import 'viewmodels/music_viewmodel.dart';
+import 'controllers/folder_controller.dart';
+import 'controllers/songs_controller.dart';
 import 'utils/theme_controller.dart';
 import 'utils/theme.dart';
 import 'views/splash_screen.dart';
@@ -14,11 +18,18 @@ import 'views/splash_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
+    // Initialize metadata parser for artwork-from-file support
+    try {
+      await MetadataGod.initialize();
+    } catch (_) {}
     // Initialize Hive
     await Hive.initFlutter();
 
     // Initialize folder data service
     await FolderDataService.init();
+
+    // Initialize song data service
+    await SongDataService.init();
 
     // Initialize and register services properly with better error handling
     final musicService = MusicService();
@@ -37,6 +48,12 @@ void main() async {
 
     // Initialize viewmodel after services
     Get.put(MusicViewModel());
+
+    // Initialize folder controller (will load folders from cache)
+    Get.put(FolderController());
+
+    // Initialize songs controller (will load songs from cache)
+    Get.put(SongsController());
 
     // Put ThemeController
     Get.put(ThemeController());

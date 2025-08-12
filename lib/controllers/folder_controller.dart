@@ -1,9 +1,16 @@
 import 'package:get/get.dart';
+import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/directory_info_model.dart';
 import '../services/folder_data_service.dart';
+import '../utils/time_utils.dart';
+import '../utils/permission_utils.dart';
+import '../models/song_model.dart';
+import '../services/music_service.dart';
+import '../viewmodels/music_viewmodel.dart';
 import 'dart:io';
+import '../services/artwork_cache_service.dart';
 
 class FolderController extends GetxController {
   // Reactive variables
@@ -16,6 +23,8 @@ class FolderController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    // Set initialized immediately to prevent loading screen
+    isInitialized.value = true;
     // Initialize folders when controller is created (app startup)
     _initializeFolders();
   }
@@ -27,26 +36,15 @@ class FolderController extends GetxController {
       
       // Check cache info
       final cacheInfo = await FolderDataService.getCacheInfo();
-      print('Cache info: $cacheInfo');
 
       if (cacheInfo['hasCache'] == true && cacheInfo['isValid'] == true) {
         // Load from cache immediately
         final cachedDirectories = await FolderDataService.loadDirectories();
         audioDirectories.value = cachedDirectories;
         _updateLastScanTime(cacheInfo['lastScan']);
-        isInitialized.value = true;
-        print('Loaded ${cachedDirectories.length} directories from cache');
-      } else {
-        // Need to scan fresh
-        print('No valid cache found, will scan...');
-        isInitialized.value = true;
-        await scanForAudioDirectories();
       }
     } catch (e) {
-      print('Error initializing folder data: $e');
-      isInitialized.value = true;
-      // Fallback to fresh scan
-      await scanForAudioDirectories();
+      // Error occurred, but controller is already initialized
     }
   }
 
@@ -66,7 +64,6 @@ class FolderController extends GetxController {
       bool hasPermission = await _requestPermissions();
       
       if (!hasPermission) {
-        print("Permissions not granted");
         _showPermissionDialog();
         isScanning.value = false;
         scanStatus.value = '';
@@ -80,21 +77,14 @@ class FolderController extends GetxController {
       // Get various storage directories to scan
       List<Directory> dirsToScan = await _getDirectoriesToScan();
       
-      print("Found ${dirsToScan.length} directories to scan");
-      
       for (int i = 0; i < dirsToScan.length; i++) {
         Directory dir = dirsToScan[i];
         scanStatus.value = 'Scanning ${dir.path.split(Platform.pathSeparator).last}... (${i + 1}/${dirsToScan.length})';
         
         if (await dir.exists()) {
-          print("Scanning directory: ${dir.path}");
           await _scanDirectory(dir, directories);
-        } else {
-          print("Directory not found: ${dir.path}");
         }
       }
-
-      print("Found ${directories.length} directories with audio files");
 
       // Update reactive variables
       audioDirectories.value = directories;
@@ -104,10 +94,8 @@ class FolderController extends GetxController {
       // Save to cache
       await FolderDataService.saveDirectories(directories);
       _updateLastScanTime(DateTime.now());
-      print('Saved ${directories.length} directories to cache');
 
     } catch (e) {
-      print('Error scanning: $e');
       isScanning.value = false;
       scanStatus.value = '';
     }
@@ -117,12 +105,17 @@ class FolderController extends GetxController {
     try {
       await _scanDirectoryRecursively(dir, result, 0, 5); // Max depth of 5 levels
     } catch (e) {
-      print('Error scanning directory ${dir.path}: $e');
+      // Handle error silently and continue
     }
   }
 
   Future<void> _scanDirectoryRecursively(Directory dir, List<DirectoryInfo> result, int currentDepth, int maxDepth) async {
     if (currentDepth > maxDepth) return;
+    final lowerPath = dir.path.toLowerCase();
+    // Skip common system tone / notification directories entirely
+    if (lowerPath.contains('ringtones') || lowerPath.contains('notifications') || lowerPath.contains('alarms') || lowerPath.contains('/ui/')) {
+      return;
+    }
     
     try {
       List<File> audioFiles = [];
@@ -133,7 +126,6 @@ class FolderController extends GetxController {
           if (entity is File) {
             String ext = entity.path.split('.').last.toLowerCase();
             if (_isAudioFile(ext)) {
-              print("Found audio file: ${entity.path}");
               audioFiles.add(entity);
             }
           } else if (entity is Directory) {
@@ -143,11 +135,14 @@ class FolderController extends GetxController {
                 !dirName.startsWith('Android') && 
                 !dirName.contains('cache') &&
                 !dirName.contains('temp')) {
+              final lp = entity.path.toLowerCase();
+              if (lp.contains('ringtones') || lp.contains('notifications') || lp.contains('alarms')) {
+                continue; // skip system tone subdirectories
+              }
               subDirectories.add(entity);
             }
           }
         } catch (e) {
-          print('Error processing entity ${entity.path}: $e');
           continue;
         }
       }
@@ -171,38 +166,11 @@ class FolderController extends GetxController {
       }
 
     } catch (e) {
-      print('Error reading directory ${dir.path}: $e');
+      // Handle error silently and continue
     }
   }
 
-  Future<bool> _requestPermissions() async {
-    try {
-      // For Android 13+ (API 33+), use READ_MEDIA_AUDIO
-      if (Platform.isAndroid) {
-        var status = await Permission.audio.status;
-        if (status.isDenied) {
-          status = await Permission.audio.request();
-        }
-        
-        if (status.isGranted) {
-          return true;
-        }
-        
-        // Fallback to storage permission for older devices
-        var storageStatus = await Permission.storage.status;
-        if (storageStatus.isDenied) {
-          storageStatus = await Permission.storage.request();
-        }
-        
-        return storageStatus.isGranted;
-      }
-      
-      return true; // iOS and other platforms
-    } catch (e) {
-      print('Error requesting permissions: $e');
-      return false;
-    }
-  }
+  Future<bool> _requestPermissions() => PermissionUtils.requestAudioPermissions();
 
   Future<List<Directory>> _getDirectoriesToScan() async {
     List<Directory> directories = [];
@@ -210,12 +178,10 @@ class FolderController extends GetxController {
     try {
       // Get external storage directory
       Directory? externalDir = await getExternalStorageDirectory();
-      print("External Dir: ${externalDir?.path}");
 
       if (externalDir != null) {
         // Try to get the root storage path
         String rootPath = externalDir.path.split('/Android/')[0];
-        print("Root Path: $rootPath");
 
         // Common music directories - expanded list
         List<String> commonPaths = [
@@ -229,18 +195,13 @@ class FolderController extends GetxController {
           '$rootPath/Audio',
           '$rootPath/Sounds',
           '$rootPath/media/audio',
-          '$rootPath/DCIM', // Sometimes audio files are here
-          '$rootPath/WhatsApp/Media/WhatsApp Audio', // WhatsApp audio
-          '$rootPath/Telegram/Telegram Audio', // Telegram audio
+          
         ];
 
         for (String path in commonPaths) {
           Directory dir = Directory(path);
           if (await dir.exists()) {
-            print("Adding directory to scan: $path");
             directories.add(dir);
-          } else {
-            print("Directory not found: $path");
           }
         }
         
@@ -256,10 +217,9 @@ class FolderController extends GetxController {
       directories.add(appDir);
       
     } catch (e) {
-      print('Error getting directories to scan: $e');
+      // Handle error silently
     }
     
-    print("Total directories to scan: ${directories.length}");
     return directories;
   }
 
@@ -290,23 +250,7 @@ class FolderController extends GetxController {
     return audioExts.contains(ext);
   }
 
-  void _updateLastScanTime(DateTime? scanTime) {
-    if (scanTime == null) return;
-    
-    final timeAgo = DateTime.now().difference(scanTime);
-    String timeText = '';
-    if (timeAgo.inMinutes < 1) {
-      timeText = 'Just now';
-    } else if (timeAgo.inMinutes < 60) {
-      timeText = '${timeAgo.inMinutes}m ago';
-    } else if (timeAgo.inHours < 24) {
-      timeText = '${timeAgo.inHours}h ago';
-    } else {
-      timeText = '${timeAgo.inDays}d ago';
-    }
-    
-    lastScanTime.value = timeText;
-  }
+  void _updateLastScanTime(DateTime? scanTime) => lastScanTime.value = TimeUtils.timeAgo(scanTime);
 
   // Public method to force refresh
   Future<void> refreshFolders() async {
@@ -316,5 +260,140 @@ class FolderController extends GetxController {
   // Get cache info for UI
   Future<Map<String, dynamic>> getCacheInfo() async {
     return await FolderDataService.getCacheInfo();
+  }
+
+  // ===================== New abstraction layer for folder -> songs =====================
+  /// Build Song objects for a directory. Attempts to map file-based songs to existing
+  /// library songs (for artwork / metadata) when possible; otherwise creates lightweight entries.
+  List<Song> buildSongsForDirectory(DirectoryInfo dirInfo) {
+    final musicService = Get.isRegistered<MusicService>() ? Get.find<MusicService>() : null;
+    final librarySongs = musicService?.librarySongs ?? const <Song>[];
+    // Build fast exact map
+    final Map<String, Song> nameMap = {
+      for (final s in librarySongs) _normalizeName(s.title): s
+    };
+
+    final List<Song> songs = [];
+    final List<File> files = dirInfo.audioFiles;
+    for (var i = 0; i < files.length; i++) {
+      final file = files[i];
+      final rawBase = _fileNameWithoutExtension(_fileName(file.path));
+      final baseName = _normalizeName(rawBase);
+      Song? mapped = nameMap[baseName];
+
+      // If no direct match, attempt fuzzy token match
+      if (mapped == null && librarySongs.isNotEmpty) {
+        mapped = _fuzzyMatch(baseName, librarySongs);
+      }
+
+      songs.add(mapped ?? _createSongFromFile(dirInfo, file, i));
+    }
+
+  // Filter out songs with no artist & no album metadata (likely system tones)
+  final filtered = songs.where((s) => !(s.artist == 'Unknown Artist' && s.album == 'Unknown Album')).toList();
+
+    // Warm up artwork (limit to first 60 to avoid heavy I/O)
+    try {
+      final first = songs.take(60).toList();
+      final ids = first
+          .map((s) => int.tryParse(s.id))
+          .whereType<int>();
+      if (ids.isNotEmpty) {
+        // ignore: unawaited_futures
+        ArtworkCacheService.warmUp(ids);
+      }
+      for (final s in first) {
+        if (int.tryParse(s.id) == null && s.uri.isNotEmpty) {
+          // ignore: unawaited_futures
+          ArtworkCacheService.ensureCachedForPath(s.uri);
+        }
+      }
+    } catch (_) {}
+
+  return filtered;
+  }
+
+  /// Play all songs in a directory as a temporary queue.
+  Future<void> playDirectory(DirectoryInfo dirInfo, {int startIndex = 0}) async {
+    final songs = buildSongsForDirectory(dirInfo);
+    await _setTemporaryQueueAndPlay(songs, startIndex);
+  }
+
+  /// Play a single song (by index) within the directory context.
+  Future<void> playSongInDirectory(DirectoryInfo dirInfo, int index) async {
+    final songs = buildSongsForDirectory(dirInfo);
+    if (index < 0 || index >= songs.length) return;
+    await _setTemporaryQueueAndPlay(songs, index);
+  }
+
+  // -------------------- Internal helpers --------------------
+  Future<void> _setTemporaryQueueAndPlay(List<Song> songs, int index) async {
+    try {
+      final musicService = Get.find<MusicService>();
+      await musicService.setTemporaryQueue(songs, startIndex: index);
+    } catch (_) {
+      // Fallback to viewmodel if music service not available
+      final vm = Get.isRegistered<MusicViewModel>() ? Get.find<MusicViewModel>() : null;
+      if (vm != null) {
+        vm.songs
+          ..clear()
+          ..addAll(songs);
+        vm.playSong(index);
+      }
+    }
+  }
+
+  Song _createSongFromFile(DirectoryInfo dirInfo, File file, int index) {
+    final title = _fileNameWithoutExtension(_fileName(file.path));
+    return Song(
+      id: 'folder_${dirInfo.name}_$index',
+      title: title,
+      artist: 'Unknown Artist',
+  album: 'Unknown Album',
+      duration: '0',
+      uri: file.path,
+      artworkPath: null,
+    );
+  }
+
+  String _fileName(String path) => path.split(Platform.pathSeparator).last;
+  String _fileNameWithoutExtension(String fileName) {
+    final i = fileName.lastIndexOf('.');
+    return i == -1 ? fileName : fileName.substring(0, i);
+  }
+  String _normalizeName(String input) {
+    var n = input.toLowerCase();
+    // Remove leading track numbers (e.g., 01-, 1., 07 )
+    n = n.replaceFirst(RegExp(r'^[0-9]{1,3}[\s._-]+'), '');
+    // Remove bracketed prefixes [live] (remastered) etc at start
+    n = n.replaceFirst(RegExp(r'^[\[(][^\])]+[\])]\s*'), '');
+    // Common tags
+    for (final tag in ['official video', 'official audio', 'lyrics', 'lyric video']) {
+      n = n.replaceAll(tag, '');
+    }
+    n = n.replaceAll('_', ' ').replaceAll('-', ' ');
+    n = n.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return n;
+  }
+
+  Song? _fuzzyMatch(String base, List<Song> librarySongs) {
+    List<String> baseTokens = base.split(' ');
+    Song? best;
+    double bestScore = 0;
+    for (final s in librarySongs) {
+      final norm = _normalizeName(s.title);
+      if (norm == base || norm.contains(base) || base.contains(norm)) {
+        // Prefer exact/contain match immediately
+        return s;
+      }
+      final tokens = norm.split(' ');
+      final intersect = tokens.toSet().intersection(baseTokens.toSet());
+      final double ratio = intersect.isEmpty ? 0.0 : intersect.length / (baseTokens.length + 0.5);
+      if (ratio > 0.6 && ratio > bestScore) {
+        bestScore = ratio;
+        best = s;
+      }
+    }
+    return bestScore >= 0.6 ? best : null;
   }
 }
